@@ -1,0 +1,4 @@
+backend/.gitignore
+backend/db/.idea/
+backend/workers/__pycache__/
+backend/__pycache__/

@@ -1,0 +1,11 @@
+python-dotenv
+fastapi
+uvicorn
+python-multipart
+requests
+duckdb
+python-doctr
+sentence-transformers
+mlx
+mlx-embeddings
+python-doctr
