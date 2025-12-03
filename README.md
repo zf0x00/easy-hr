@@ -70,8 +70,15 @@
 
 ## ? Prerequests
 - Install Parllax from [Here](https://github.com/GradientHQ/parallax/blob/main/docs/user_guide/install.md)
-- make sure it was running in the background
+- Follow this to learn how to run a Parallax node [Here](https://github.com/GradientHQ/parallax/blob/main/docs/user_guide/quick_start.md)
+- make sure Parllax was running in the background in 3001 port 
 - git clone this repo
+
+```bash
+#Parllax Run after activation
+parallax run -m Qwen/Qwen3-0.6B -n 1 #in this i am using Qwen3-0.6B can use any Qwen model bigger model better output
+parallax join
+```
 
 ```bash
 # Clone Repo
