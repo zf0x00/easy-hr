@@ -1,4 +1,7 @@
-<br />
+<p align="center">
+  <img src="/graphics/easy-hr-icon.png" alt="Easy HR Logo" width="120" />
+</p>
+
 <h1 align="center">Easy HR</h1>
 <p align="center">Privacy-First, Local-LLM Powered HR Resume Management Built with Parallax, Next.js, and Local AI models for secure, offline candidate processing.</p>
 
@@ -65,6 +68,15 @@
 | Storage | Local filesystem |
 | Parsing | Local OCR + LLM |
 | Deployment | Local / Docker |
+
+---
+## 📸 Screenshots
+
+<div style="display: flex; justify-content: center; gap: 20px;">
+  <img src="/graphics/images/pic_01.png" alt="Image 1" width="320" />
+  <img src="/graphics/images/pic_02.png" alt="Image 2" width="320" />
+  <img src="/graphics/images/pic_03.png" alt="Image 3" width="320" />
+</div>
 
 ---
 
