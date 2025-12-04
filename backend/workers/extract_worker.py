@@ -4,7 +4,7 @@ import os
 
 import requests
 
-PARALLAX_CHAT = "http://localhost:3000/v1/chat/completions"
+PARALLAX_CHAT = "http://localhost:3001/v1/chat/completions"
 
 EXTRACTION_PROMPT = """
 Extract the following fields from this resume:
