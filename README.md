@@ -3,7 +3,7 @@
 </p>
 
 <h1 align="center">Easy HR</h1>
-<p align="center">Privacy-First, Local-LLM Powered HR Resume Management Built with Parallax, Next.js, and Local AI models for secure, offline candidate processing.</p>
+<p align="center">Privacy-First, Local-LLM Powered HR Resume Management Built with Parallax, React, and Local AI models for secure, offline candidate processing.</p>
 
 ## 🚀 Overview
 
