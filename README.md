@@ -56,6 +56,12 @@
 
 ---
 
+## 🏗️ Architecture
+
+<p align="center">
+  <img src="/graphics/arch.png" alt="Easy HR Logo" width="500" />
+</p>
+
 ## ⚙️ Tech Stack
 
 | Layer | Technology |
