@@ -109,6 +109,8 @@ def get_conn():
 def insert_candidate(conn, candidate_obj: dict, embedding: List[float]):
     logging.info("Inserting candidate: %s", candidate_obj.get("Full Name", "N/A"))
 
+    logging.info("Data Inserting candidate: %s", candidate_obj)
+
     # Normalize storage: skills as JSON string
     skills_field = candidate_obj.get("Skills") or None
     if isinstance(skills_field, (list, tuple)):
@@ -460,47 +462,6 @@ def validate_parsed_data(parsed: dict, raw_text: str) -> Tuple[bool, str]:
     return True, ""
 
 
-def _normalize_candidate_data(parsed: Any, filename: str) -> Dict[str, Any]:
-    """Helper to salvage and normalize extracted data structure."""
-    data = {}
-
-    # Handle extraction failures or non-dict results
-    if not isinstance(parsed, dict) or parsed.get("error"):
-        logging.warning(f"Parsing failed for {filename}, attempting salvage.")
-        salvaged = try_extract_json_from_raw(parsed if isinstance(parsed, dict) else {})
-        data = normalize_keys(salvaged) if salvaged else {}
-    else:
-        data = normalize_keys(parsed)
-
-    # Ensure defaults structure
-    normalized = {
-        "Full Name": data.get("Full Name"),
-        "Email": data.get("Email"),
-        "Phone": data.get("Phone"),
-        "Skills": [],
-        "Total Experience": data.get("Total Experience"),
-        "Education Summary": data.get("Education Summary"),
-        "Professional Summary": data.get("Professional Summary"),
-        "raw": parsed.get("raw") if isinstance(parsed, dict) else None,
-    }
-
-    raw_skills = data.get("Skills")
-    if isinstance(raw_skills, list):
-        for item in raw_skills:
-            if isinstance(item, str):
-                normalized["Skills"].extend(
-                    [s.strip() for s in item.split(",") if s.strip()]
-                )
-    elif isinstance(raw_skills, str):
-        normalized["Skills"] = [s.strip() for s in raw_skills.split(",") if s.strip()]
-
-    # Clean Experience field
-    if isinstance(normalized["Total Experience"], str):
-        normalized["Total Experience"] = normalized["Total Experience"].strip()
-
-    return normalized
-
-
 def process_and_insert_resume(file: UploadFile) -> Dict[str, Any]:
     """
     Process resume: Save -> OCR -> Extract -> Normalize -> Validate -> Embed -> DB.
@@ -520,12 +481,15 @@ def process_and_insert_resume(file: UploadFile) -> Dict[str, Any]:
             # 2. Extract Fields
             raw_parsed = extract_worker.extract_fields(raw_text)
 
-            # 3. Normalize Data
-            parsed_data = _normalize_candidate_data(raw_parsed, file.filename)
-            parsed_data["raw_text"] = raw_text
+            logger.info("raw_parsed_data 🦕: %s", raw_parsed)
 
-            has_name = bool(parsed_data.get("Full Name"))
-            has_contact = bool(parsed_data.get("Email") or parsed_data.get("Phone"))
+            has_name = bool(raw_parsed["data"].get("Full Name"))
+            has_contact = bool(
+                raw_parsed["data"].get("Email") or raw_parsed["data"].get("Phone")
+            )
+
+            logger.info("has_name: ->", has_name)
+            logger.info("has_contact: ->", has_contact)
 
             if not has_name or not has_contact:
                 error_msg = "Extraction failed: Missing Full Name or Contact Information or Backend error"
@@ -537,7 +501,7 @@ def process_and_insert_resume(file: UploadFile) -> Dict[str, Any]:
                 }
 
             # 4. Validate
-            is_valid, error_msg = validate_parsed_data(parsed_data, raw_text)
+            is_valid, error_msg = validate_parsed_data(raw_parsed["data"], raw_text)
             if not is_valid:
                 logging.error(f"Validation failed for {file.filename}: {error_msg}")
                 return {
@@ -551,10 +515,14 @@ def process_and_insert_resume(file: UploadFile) -> Dict[str, Any]:
 
             # 6. Insert into DB
             with get_conn() as conn:
-                insert_candidate(conn, parsed_data, embedding)
+                insert_candidate(conn, raw_parsed["data"], embedding)
 
             logging.info(f"Successfully processed {file.filename}")
-            return {"status": "ok", "parsed": parsed_data, "filename": file.filename}
+            return {
+                "status": "ok",
+                "parsed": raw_parsed["data"],
+                "filename": file.filename,
+            }
 
     except Exception as e:
         logging.error(f"Error processing {file.filename}: {str(e)}", exc_info=True)
