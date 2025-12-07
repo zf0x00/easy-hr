@@ -12,6 +12,7 @@ import uuid
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
+import tempfile
 from typing import Any, Dict, List, Optional, Tuple
 
 import duckdb
@@ -22,7 +23,6 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from workers import embed_worker, extract_worker, ocr_worker, search_worker
 
-# --- Config (change if needed) ---
 BASE_DIR = os.path.dirname(__file__)
 DB_PATH = os.path.join(BASE_DIR, "db", "candidates.duckdb")
 TMP_DIR = os.path.join(BASE_DIR, "tmp")
@@ -460,129 +460,107 @@ def validate_parsed_data(parsed: dict, raw_text: str) -> Tuple[bool, str]:
     return True, ""
 
 
-def process_and_insert_resume(file: UploadFile):
+def _normalize_candidate_data(parsed: Any, filename: str) -> Dict[str, Any]:
+    """Helper to salvage and normalize extracted data structure."""
+    data = {}
+
+    # Handle extraction failures or non-dict results
+    if not isinstance(parsed, dict) or parsed.get("error"):
+        logging.warning(f"Parsing failed for {filename}, attempting salvage.")
+        salvaged = try_extract_json_from_raw(parsed if isinstance(parsed, dict) else {})
+        data = normalize_keys(salvaged) if salvaged else {}
+    else:
+        data = normalize_keys(parsed)
+
+    # Ensure defaults structure
+    normalized = {
+        "Full Name": data.get("Full Name"),
+        "Email": data.get("Email"),
+        "Phone": data.get("Phone"),
+        "Skills": [],
+        "Total Experience": data.get("Total Experience"),
+        "Education Summary": data.get("Education Summary"),
+        "Professional Summary": data.get("Professional Summary"),
+        "raw": parsed.get("raw") if isinstance(parsed, dict) else None,
+    }
+
+    raw_skills = data.get("Skills")
+    if isinstance(raw_skills, list):
+        for item in raw_skills:
+            if isinstance(item, str):
+                normalized["Skills"].extend(
+                    [s.strip() for s in item.split(",") if s.strip()]
+                )
+    elif isinstance(raw_skills, str):
+        normalized["Skills"] = [s.strip() for s in raw_skills.split(",") if s.strip()]
+
+    # Clean Experience field
+    if isinstance(normalized["Total Experience"], str):
+        normalized["Total Experience"] = normalized["Total Experience"].strip()
+
+    return normalized
+
+
+def process_and_insert_resume(file: UploadFile) -> Dict[str, Any]:
     """
-    Process a single resume file: save, OCR, parse, embed, and insert into DB.
-    This is a synchronous function intended to be run in a thread pool.
+    Process resume: Save -> OCR -> Extract -> Normalize -> Validate -> Embed -> DB.
     """
-    filename = f"{uuid.uuid4().hex}_{file.filename}"
-    logging.info(f"Processing file: {filename}")
-    file_path = os.path.join(TMP_DIR, filename)
-
-    # Always ensure file is closed to prevent resource leaks
-    try:
-        with open(file_path, "wb") as f:
-            shutil.copyfileobj(file.file, f)
-    finally:
-        file.file.close()
+    logging.info(f"Processing file: {file.filename}")
 
     try:
-        # 1) OCR
-        raw_text = ocr_worker.extract_text(file_path)
-        logging.info(f"🚀 OCR complete for {file.filename}")
+        with tempfile.NamedTemporaryFile(
+            delete=True, suffix=f"_{file.filename}"
+        ) as tmp_file:
+            shutil.copyfileobj(file.file, tmp_file)
+            tmp_file.flush()
 
-        # 2) Extract structured fields
-        parsed = extract_worker.extract_fields(raw_text)
-        logging.info(f"🚀 Parsed data for {file.filename}: {parsed}")
+            # 1. OCR
+            raw_text = ocr_worker.extract_text(tmp_file.name)
 
-        # If extraction failed, use a fallback structure with correct keys
-        if not isinstance(parsed, dict) or parsed.get("error"):
-            logging.warning(
-                f"Could not parse structured data for {file.filename}. Using fallback. Error: {parsed.get('error', 'Not a dict')}"
-            )
+            # 2. Extract Fields
+            raw_parsed = extract_worker.extract_fields(raw_text)
 
-            salvaged = try_extract_json_from_raw(
-                parsed if isinstance(parsed, dict) else {}
-            )
-            if salvaged:
-                logging.info(
-                    "Salvaged JSON from raw assistant content for %s", file.filename
-                )
-                normalized = normalize_keys(salvaged)
+            # 3. Normalize Data
+            parsed_data = _normalize_candidate_data(raw_parsed, file.filename)
+            parsed_data["raw_text"] = raw_text
 
-                # Normalize Skills -> list of strings
-                skills = normalized.get("Skills")
-                if isinstance(skills, list):
-                    flattened = []
-                    for item in skills:
-                        if isinstance(item, str):
-                            flattened += [
-                                s.strip() for s in item.split(",") if s.strip()
-                            ]
-                    normalized["Skills"] = flattened
-                elif isinstance(skills, str):
-                    normalized["Skills"] = [
-                        s.strip() for s in skills.split(",") if s.strip()
-                    ]
-                else:
-                    normalized["Skills"] = []
+            has_name = bool(parsed_data.get("Full Name"))
+            has_contact = bool(parsed_data.get("Email") or parsed_data.get("Phone"))
 
-                te = normalized.get("Total Experience")
-                normalized["Total Experience"] = (
-                    te.strip() if isinstance(te, str) else None
-                )
-
-                parsed = {
-                    "Full Name": normalized.get("Full Name"),
-                    "Email": normalized.get("Email"),
-                    "Phone": normalized.get("Phone"),
-                    "Skills": normalized.get("Skills", []),
-                    "Total Experience": normalized.get("Total Experience"),
-                    "Education Summary": normalized.get("Education Summary"),
-                    "Professional Summary": normalized.get("Professional Summary"),
-                    # keep original raw if present
-                    "raw": parsed.get("raw") if isinstance(parsed, dict) else None,
-                }
-            else:
-                logging.warning(
-                    "Could not salvage JSON; using fallback for %s", file.filename
-                )
-                parsed = {
-                    "Full Name": None,
-                    "Email": None,
-                    "Phone": None,
-                    "Skills": [],
-                    "Total Experience": None,
-                    "Education Summary": None,
-                    "Professional Summary": None,
+            if not has_name or not has_contact:
+                error_msg = "Extraction failed: Missing Full Name or Contact Information or Backend error"
+                logging.error(f"{error_msg} for {file.filename}")
+                return {
+                    "status": "error",
+                    "filename": file.filename,
+                    "detail": error_msg,
                 }
 
-        # Always store the raw text
-        parsed["raw_text"] = raw_text
+            # 4. Validate
+            is_valid, error_msg = validate_parsed_data(parsed_data, raw_text)
+            if not is_valid:
+                logging.error(f"Validation failed for {file.filename}: {error_msg}")
+                return {
+                    "status": "error",
+                    "filename": file.filename,
+                    "detail": error_msg,
+                }
 
-        # logging.info(f"👉 Parsed text {parsed}")
-        # logging.info(f"👉 Raw text {raw_text}")
+            # 5. Embed
+            embedding = embed_worker.embed_text(raw_text)
 
-        is_valid, error_message = validate_parsed_data(parsed, raw_text)
+            # 6. Insert into DB
+            with get_conn() as conn:
+                insert_candidate(conn, parsed_data, embedding)
 
-        # logging.info(f"👉 is_valid text {is_valid}")
-        # logging.info(f"👉 error_message text {error_message}")
+            logging.info(f"Successfully processed {file.filename}")
+            return {"status": "ok", "parsed": parsed_data, "filename": file.filename}
 
-        if not is_valid:
-            logging.error(f"Validation failed for {file.filename}: {error_message}")
-            return {
-                "status": "error",
-                "filename": file.filename,
-                "detail": error_message,
-            }
-
-        # 3) Embedding
-        emb = embed_worker.embed_text(raw_text)
-        logging.info(f"🚀 Embedding complete for {file.filename}")
-
-        # logging.info(f"🚀 PParsed for {parsed}")
-
-        # 4) Insert into DuckDB
-        with get_conn() as conn:
-            insert_candidate(conn, parsed, emb)
-        logging.info(f"🚀 Inserted into DB for {file.filename}")
-
-        return {"status": "ok", "parsed": parsed, "filename": file.filename}
     except Exception as e:
         logging.error(f"Error processing {file.filename}: {str(e)}", exc_info=True)
         return {"status": "error", "filename": file.filename, "detail": str(e)}
     finally:
-        pass
+        file.file.close()
 
 
 # Endpoint: upload resume (PDF)

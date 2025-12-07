@@ -1,4 +1,4 @@
-"use client"
+"use client";
 
 import { useState, useCallback } from "react";
 import {
@@ -23,7 +23,7 @@ import { Plus, UploadCloudIcon } from "lucide-react";
 import UploadResume from "./UploadResume";
 import ChatHistory from "./ChatHistory";
 import { useNavigate } from "react-router-dom";
-import { toast } from "sonner"
+import { toast } from "sonner";
 
 export function AppSidebar() {
   const navigate = useNavigate();
@@ -33,14 +33,14 @@ export function AppSidebar() {
   const handleUploadSuccess = useCallback(() => {
     setIsDialogOpen(false);
     // You could add a toast notification here for user feedback
-    console.log('Resume uploaded successfully');
-    toast.success("Resume uploaded successfully")
+    console.log("Resume uploaded successfully");
+    toast.success("Resume uploaded successfully");
   }, []);
 
   // Handler for upload errors
   const handleUploadError = useCallback((error: Error) => {
-    console.error('Upload failed:', error);
-    // You could show a toast notification here for error feedback
+    console.error("Upload failed:", error);
+    toast.error("Resume uploaded failed");
   }, []);
 
   return (
@@ -49,8 +49,10 @@ export function AppSidebar() {
         <h2 className="text-xl font-semibold text-center">Auto HR</h2>
       </SidebarHeader>
       <SidebarContent>
-         <SidebarGroup>
-          <Button variant="outline" onClick={() => navigate('/')}><Plus /> New Chat</Button>
+        <SidebarGroup>
+          <Button variant="outline" onClick={() => navigate("/")}>
+            <Plus /> New Chat
+          </Button>
         </SidebarGroup>
         <SidebarGroup>
           <SidebarGroupLabel>Chats</SidebarGroupLabel>
@@ -90,4 +92,3 @@ export function AppSidebar() {
     </Sidebar>
   );
 }
-
